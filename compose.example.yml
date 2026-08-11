@@ -1,0 +1,8 @@
+services:
+  connector:
+    build: .
+    container_name: fiber-node-connector
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
