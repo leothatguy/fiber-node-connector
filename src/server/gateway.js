@@ -166,6 +166,7 @@ export class ConnectorGateway {
         const command = this.commands.get(commandId);
         if (!command) return;
         this.commands.delete(commandId);
+        this.removeFromQueue(connectorId, commandId);
         reject(
           new GatewayError("Connector command timed out", 504, "COMMAND_TIMEOUT"),
         );
@@ -238,6 +239,14 @@ export class ConnectorGateway {
       connector.lastSeenAt &&
         Date.now() - connector.lastSeenAt.getTime() <= this.heartbeatTtlMs,
     );
+  }
+
+  removeFromQueue(connectorId, commandId) {
+    const queue = this.queues.get(connectorId);
+    if (!queue) return;
+    const index = queue.indexOf(commandId);
+    if (index !== -1) queue.splice(index, 1);
+    this.saveQueue(connectorId, queue);
   }
 
   saveQueue(connectorId, queue) {

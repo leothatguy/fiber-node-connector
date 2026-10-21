@@ -58,3 +58,41 @@ test("redelivers a command after its lease expires", async () => {
   gateway.complete("secret", second.id, { ok: true, result: { pubkey: "03abc" } });
   await pending;
 });
+
+test("a timed-out command leaves nothing queued", async () => {
+  const gateway = new ConnectorGateway();
+  gateway.registerConnector({ connectorId: "merchant-1", token: "secret" });
+  gateway.heartbeat("secret", heartbeat);
+  const pending = [];
+  for (let index = 0; index < 20; index += 1) {
+    pending.push(
+      assert.rejects(
+        gateway.execute("merchant-1", "node_info", [], { timeoutMs: 5 }),
+        /timed out/,
+      ),
+    );
+  }
+  // The command timers are unref'd; hold the loop open until they fire.
+  const keepAlive = setInterval(() => {}, 1_000);
+  await Promise.all(pending);
+  clearInterval(keepAlive);
+  assert.equal(gateway.commands.size, 0);
+  assert.equal(gateway.getStatus("merchant-1").queuedCommandCount, 0);
+  assert.equal(gateway.queues.has("merchant-1"), false);
+});
+
+test("a timeout removes only its own command from the queue", async () => {
+  const gateway = new ConnectorGateway();
+  gateway.registerConnector({ connectorId: "merchant-1", token: "secret" });
+  gateway.heartbeat("secret", heartbeat);
+  const expiring = gateway.execute("merchant-1", "node_info", [], { timeoutMs: 5 });
+  const lasting = gateway.execute("merchant-1", "get_invoice", [{ payment_hash: "0x01" }]);
+  const keepAlive = setInterval(() => {}, 1_000);
+  await assert.rejects(expiring, /timed out/);
+  clearInterval(keepAlive);
+  assert.equal(gateway.getStatus("merchant-1").queuedCommandCount, 1);
+  const command = gateway.poll("secret");
+  assert.equal(command.method, "get_invoice");
+  gateway.complete("secret", command.id, { ok: true, result: { status: "Paid" } });
+  assert.deepEqual(await lasting, { status: "Paid" });
+});
