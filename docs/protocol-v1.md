@@ -9,9 +9,12 @@ Every connector request uses:
 ```http
 Authorization: Bearer <connector-token>
 X-Fiber-Connector-Version: 0.1.0
+X-Fiber-Connector-Instance: <uuid>
 ```
 
 The backend should store only a secure hash of the connector token and bind the token to one connector ID or merchant identity.
+
+`X-Fiber-Connector-Instance` is a random UUID generated each time the connector process starts. A backend may use it to keep a single active connector per token: accept requests from the instance that is currently active, and answer any other instance with HTTP 409 until the active one stops sending heartbeats. A connector that receives 409 keeps retrying with backoff, so it takes over once the active instance goes away.
 
 ## Heartbeat
 

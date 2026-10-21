@@ -40,9 +40,11 @@ export class BackendClient {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(
+      const error = new Error(
         `Backend ${path} failed with HTTP ${response.status}${text ? `: ${text}` : ""}`,
       );
+      error.status = response.status;
+      throw error;
     }
     if (response.status === 204) return null;
     const text = await response.text();

@@ -19,3 +19,15 @@ test("protocol v1 uses versioned routes and bearer authentication", () => {
   assert.equal(protocol.headers.Authorization, "Bearer secret");
   assert.equal(protocol.pollBody().connectorId, "merchant-1");
 });
+
+test("each protocol carries one instance id on every request", () => {
+  const first = createProtocol(baseConfig);
+  const second = createProtocol(baseConfig);
+  assert.match(first.headers["X-Fiber-Connector-Instance"], /^[0-9a-f-]{36}$/);
+  assert.equal(first.headers["X-Fiber-Connector-Instance"], first.instanceId);
+  assert.notEqual(first.instanceId, second.instanceId);
+  assert.equal(
+    createProtocol({ ...baseConfig, instanceId: "fixed" }).headers["X-Fiber-Connector-Instance"],
+    "fixed",
+  );
+});

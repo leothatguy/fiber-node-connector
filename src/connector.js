@@ -9,6 +9,7 @@ export class FiberNodeConnector {
     this.commandPolicy = commandPolicy;
     this.logger = logger;
     this.resultCache = new Map();
+    this.standby = false;
   }
 
   async start(signal) {
@@ -18,6 +19,7 @@ export class FiberNodeConnector {
       backendUrl: this.config.backendUrl,
       fiberRpcUrl: this.config.fiberRpcUrl,
       capabilities: this.config.allowedMethods,
+      instanceId: this.backend.protocol?.instanceId,
     });
     await Promise.all([
       this.runHeartbeatLoop(signal),
@@ -42,6 +44,7 @@ export class FiberNodeConnector {
       };
     }
     await this.backend.heartbeat(status);
+    this.markActive();
     this.logger.info("heartbeat_sent", {
       nodePubkey: status.node.pubkey,
       readyChannels: status.channels.ready,
@@ -87,7 +90,9 @@ export class FiberNodeConnector {
       try {
         await this.heartbeatOnce();
       } catch (error) {
-        this.logger.warn("heartbeat_failed", { error: errorMessage(error) });
+        if (!this.markStandby(error)) {
+          this.logger.warn("heartbeat_failed", { error: errorMessage(error) });
+        }
       }
       await sleep(this.config.heartbeatMs, signal);
     }
@@ -106,13 +111,35 @@ export class FiberNodeConnector {
           this.config.retryMinMs,
           this.config.retryMaxMs,
         );
-        this.logger.warn("poll_failed", {
-          error: errorMessage(error),
-          retryInMs: backoffMs,
-        });
+        if (!this.markStandby(error)) {
+          this.logger.warn("poll_failed", {
+            error: errorMessage(error),
+            retryInMs: backoffMs,
+          });
+        }
         await sleep(backoffMs, signal);
       }
     }
+  }
+
+  // HTTP 409 means the backend is serving another instance of this connector.
+  // That is a normal state, not a failure: say so once and keep retrying, so
+  // this instance takes over when the other one stops.
+  markStandby(error) {
+    if (error?.status !== 409) return false;
+    if (!this.standby) {
+      this.standby = true;
+      this.logger.info("connector_standby", {
+        reason: "another instance is active for this connector",
+      });
+    }
+    return true;
+  }
+
+  markActive() {
+    if (!this.standby) return;
+    this.standby = false;
+    this.logger.info("connector_active");
   }
 
   cacheResult(commandId, payload) {
